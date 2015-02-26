@@ -93,7 +93,6 @@ class Struct(object):
             if isinstance(func, tuple):
                 substr, func = func
                 item = substr(item, endian)
-                i += 1
             
             # None here means the field should be omitted
             if func is None:
@@ -143,6 +142,9 @@ class Struct(object):
     def __repr__(self, indent=0):
         indent_str = '    '*indent
         r = indent_str + '%s(\n'%self.__class__.__name__
+        if not hasattr(self, '_fields'):
+            r = r[:-1] + '<initializing>)'
+            return r
         for k,v in self._fields.items():
             if isinstance(v, Struct):
                 r += indent_str + '    %s = %s\n' % (k, v.__repr__(indent=indent+1).lstrip())
@@ -181,6 +183,7 @@ class StructArray(Struct):
         r += '    '*indent + ')'
         return r
 
+
 def cstr(byt):
     """Convert C string bytes to python string.
     """
@@ -212,10 +215,68 @@ class BundleHeader(Struct):
     size_check = 256
 
 
-class TraceRecord(Struct):
+
+class TreeNode(Struct):
+    """Struct that also represents a node in a Pulse file tree.
+    """
+    def __init__(self, fh, pul, level=0):
+        self.level = level
+        self.children = []
+        endian = pul.endian
+        
+        # The record structure in the file may differ from our expected structure
+        # due to version differences, so we read the required number of bytes, and
+        # then pad or truncate before unpacking the record. This will probably
+        # result in corrupt data in some situations..
+        realsize = pul.level_sizes[level]
+        structsize = self.size()
+        data = fh.read(realsize)
+        diff = structsize - realsize
+        if diff > 0:
+            data = data + b'\0'*diff
+        else:
+            data = data[:structsize]
+        
+        # initialize struct data
+        Struct.__init__(self, data, endian)
+        
+        # Next read the number of children
+        nchild = struct.unpack(endian + 'i', fh.read(4))[0]
+            
+        level += 1
+        if level >= len(pul.rectypes):
+            return
+        child_rectype = pul.rectypes[level]
+        for i in range(nchild):
+            self.children.append(child_rectype(fh, pul, level))
+
+    def __getitem__(self, i):
+        return self.children[i]
+    
+    def __len__(self):
+        return len(self.children)
+    
+    def __iter__(self):
+        return self.children.__iter__()
+    
+    def __repr__(self, indent=0):
+        # Return a string describing this structure
+        ind = '    '*indent
+        srep = Struct.__repr__(self, indent)[:-1]  # exclude final parenthese
+        srep += ind + '    children = %d,\n' % len(self)
+        #srep += ind + 'children = [\n'
+        #for ch in self:
+            #srep += ch.__repr__(indent=indent+1) + ',\n'
+        srep += ind + ')'
+        return srep
+
+
+
+
+class TraceRecord(TreeNode):
     field_info = [
         ('Mark', 'i'),
-        ('Label', '32s'),
+        ('Label', '32s', cstr),
         ('TraceCount', 'i'),
         ('Data', 'i'),
         ('DataPoints', 'i'),
@@ -224,7 +285,7 @@ class TraceRecord(Struct):
         ('LeakCount', 'i'),
         ('LeakTraces', 'i'),
         ('DataKind', 'h'),
-        ('Filler1', 'h'),
+        ('Filler1', 'h', None),
         ('RecordingMode', 'c'),
         ('AmplIndex', 'c'),
         ('DataFormat', 'c'),
@@ -232,10 +293,10 @@ class TraceRecord(Struct):
         ('DataScaler', 'd'),
         ('TimeOffset', 'd'),
         ('ZeroData', 'd'),
-        ('YUnit', '8s'),
+        ('YUnit', '8s', cstr),
         ('XInterval', 'd'),
         ('XStart', 'd'),
-        ('XUnit', '8s'),
+        ('XUnit', '8s', cstr),
         ('YRange', 'd'),
         ('YOffset', 'd'),
         ('Bandwidth', 'd'),
@@ -262,15 +323,15 @@ class TraceRecord(Struct):
         ('CRC', 'i'),
         ('GS', 'd'),
         ('SelfChannel', 'i'),
-        ('Filler2', 'i'),
+        ('Filler2', 'i', None),
     ]
     size_check = 296
 
 
-class SweepRecord(Struct):
+class SweepRecord(TreeNode):
     field_info = [
         ('Mark', 'i'),
-        ('Label', '32s'),
+        ('Label', '32s', cstr),
         ('AuxDataFileOffset', 'i'),
         ('StimCount', 'i'),
         ('SweepCount', 'i'),
@@ -282,9 +343,9 @@ class SweepRecord(Struct):
         ('OldExtSol', 'i'),
         ('DigitalIn', 'h'),
         ('SweepKind', 'h'),
-        ('Filler1', 'i'),
+        ('Filler1', 'i', None),
         ('Markers', '4d'),
-        ('Filler2', 'i'),
+        ('Filler2', 'i', None),
         ('CRC', 'i'),
     ]
     size_check = 160
@@ -292,8 +353,8 @@ class SweepRecord(Struct):
 
 class UserParamDescrType(Struct):
     field_info = [
-        ('Name', '32s'),
-        ('Unit', '8s'),
+        ('Name', '32s', cstr),
+        ('Unit', '8s', cstr),
     ]
     size_check = 40
 
@@ -335,9 +396,9 @@ class AmplifierState(Struct):
         ('StimDac', 'h'),
         ('StimDacOffset', 'h'),
         ('MaxDigitalBit', 'h'),
-        ('SpareInt1', 'h'),
-        ('SpareInt2', 'h'),
-        ('SpareInt3', 'h'),
+        ('SpareInt1', 'h', None),
+        ('SpareInt2', 'h', None),
+        ('SpareInt3', 'h', None),
 
         ('AmplKind', 'c'),
         ('IsEpc9N', 'c'),
@@ -393,20 +454,20 @@ class AmplifierState(Struct):
         ('MuxGain64', 'c'),
         ('VmonX100', 'c'),
         ('IsQuadro', 'c'),
-        ('SpareBool4', 'c'),
-        ('SpareBool5', 'c'),
+        ('SpareBool4', 'c', None),
+        ('SpareBool5', 'c', None),
 
         ('StimFilterHz', 'd'),
         ('RsTau', 'd'),
         ('FilterOffsetDac', 'h'),
         ('ReferenceDac', 'h'),
-        ('SpareInt6', 'h'),
-        ('SpareInt7', 'h'),
-        ('Spares1', '24s'),
+        ('SpareInt6', 'h', None),
+        ('SpareInt7', 'h', None),
+        ('Spares1', '24s', None),
         
         ('CalibDate', '16s'),
         ('SelHold', 'd'),
-        ('Spares2', '32s'),
+        ('Spares2', '32s', None),
     ]
     size_check = 400
     
@@ -420,142 +481,80 @@ class LockInParams(Struct):
         ('PLPhaseY2', 'd'),
         ('UsedPhaseShift', 'd'),
         ('UsedAttenuation', 'd'),
-        ('Spares2', '8s'),
+        ('Spares2', '8s', None),
         ('ExtCalValid', '?'),
         ('PLPhaseValid', '?'),
         ('LockInMode', 'c'),
         ('CalMode', 'c'),
-        ('Spares', '28s'),
+        ('Spares', '28s', None),
     ]
     size_check = 96
 
 
-class SeriesRecord(Struct):
+class SeriesRecord(TreeNode):
     field_info = [
         ('SeMark', 'i'),
-        ('SeLabel', '32s'),
-        ('SeComment', '80s'),
+        ('SeLabel', '32s', cstr),
+        ('SeComment', '80s', cstr),
         ('SeSeriesCount', 'i'),
         ('SeNumberSweeps', 'i'),
         ('SeAmplStateOffset', 'i'),
         ('SeAmplStateSeries', 'i'),
         ('SeriesType', 'c'),
-        ('Filler1', 'c'),
-        ('Filler2', 'c'),
-        ('Filler3', 'c'),
+        ('Filler1', 'c', None),
+        ('Filler2', 'c', None),
+        ('Filler3', 'c', None),
         ('Time', 'd'),
         ('PageWidth', 'd'),
         ('SwUserParamDescr', UserParamDescrType[4]),
-        ('SeFiller4', '32s'),
+        ('SeFiller4', '32s', None),
         ('SeSeUserParams', '4d'),
         ('LockInParams', LockInParams),
         ('AmplifierState', AmplifierState),
-        ('SeUsername', '80s'),
+        ('SeUsername', '80s', cstr),
         ('SeUserParamDescr', UserParamDescrType[4]),
-        ('SeFiller5', 'i'),
+        ('SeFiller5', 'i', None),
         ('SeCRC', 'i'),
     ]
     size_check = 1120
 
 
-class GroupRecord(Struct):
+class GroupRecord(TreeNode):
     field_info = [
-        ('GrMark', 'i'),
-        ('GrLabel', '32s'),
-        ('GrText', '80s'),
-        ('GrExperimentNumber', 'i'),
-        ('GrGroupCount', 'i'),
-        ('GrCRC', 'i'),
+        ('Mark', 'i'),
+        ('Label', '32s', cstr),
+        ('Text', '80s', cstr),
+        ('ExperimentNumber', 'i'),
+        ('GroupCount', 'i'),
+        ('CRC', 'i'),
     ]
     size_check = 128
 
 
-class RootRecord(Struct):
+class Pulsed(TreeNode):
     field_info = [
-        ('RoVersion', 'i'),
-        ('RoMark', 'i'),
-        ('RoVersionName', '32s'),
-        ('RoAuxFileName', '80s'),
-        ('RoRootText', '400s'),
-        ('RoStartTime', 'd'),
-        ('RoMaxSamples', 'i'),
-        ('RoCRC', 'i'),
-        ('RoFeatures', 'h'),
-        ('RoFiller1', 'h'),
-        ('RoFiller2', 'i'),
+        ('Version', 'i'),
+        ('Mark', 'i'),
+        ('VersionName', '32s', cstr),
+        ('AuxFileName', '80s', cstr),
+        ('RootText', '400s', cstr),
+        ('StartTime', 'd'),
+        ('MaxSamples', 'i'),
+        ('CRC', 'i'),
+        ('Features', 'h'),
+        ('Filler1', 'h', None),
+        ('Filler2', 'i', None),
     ]
     size_check = 544
-
-
-class StructInst(object):
-    """Abstrict class that converts a dictionary of struct fields to attributes
-    on this object.
-    """
-    def __init__(self, data, struct, endian):
-        fields = struct.unpack(data, endian)
-        print fields.keys()
-        self._fields = fields
-        self.__dict__.update(fields)
-        print self.__dict__
-
-    def __repr__(self):
-        return '%s(\n' + '\n'.join(['    %s = %r' for name,val in self._fields.items()]) + '\n)'
-
-
-class TreeNode(StructInst):
-    # read tree recursively
+    
     rectypes = [
-        RootRecord,
+        None,
         GroupRecord,
         SeriesRecord,
         SweepRecord,
         TraceRecord
     ]
-
-    def __init__(self, fh, pul, level=0):
-        self.level = level
-        endian = pul.endian
-        rectype = self.rectypes[level]
-        
-        # The record structure in the file may differ from our expected structure
-        # due to version differences, so we read the required number of bytes, and
-        # then pad or truncate before unpacking the record. This will probably
-        # result in corrupt data in some situations..
-        realsize = pul.level_sizes[level]
-        structsize = rectype.size()
-        data = fh.read(realsize)
-        diff = structsize - realsize
-        if diff > 0:
-            data = data + b'\0'*diff
-        else:
-            data = data[:structsize]
-        
-        # Read structure and assign attributes to self
-        rectype(data, endian)
-        
-        # Next read the number of children
-        nchild = struct.unpack(endian + 'i', fh.read(4))[0]
-            
-        self.children = []
-        for i in range(nchild):
-            self.children.append(TreeNode(fh, pul, level+1))
-
-    def __getitem__(self, i):
-        return self.children[i]
     
-    def __len__(self):
-        return len(self.children)
-    
-    def __iter__(self):
-        return self.children.__iter__()
-    
-    def __repr__(self):
-        # Return a string describing this structure
-        fields = ["    %s = %r" % (n, i) for n, i in self._fields.items()]
-        return '%s( children=%d\n' % (self.level_names[self.level], len(self)) + '\n'.join(fields) + '\n)'
-
-
-class Pulsed(TreeNode):
     def __init__(self, bundle, offset=0, size=None):
         fh = open(bundle.file_name, 'rb')
         fh.seek(offset)
@@ -591,11 +590,11 @@ class Data(object):
         pul = self.bundle.pul
         trace = pul[index[0]][index[1]][index[2]][index[3]]
         fh = open(self.bundle.file_name, 'rb')
-        fh.seek(trace.data)
-        fmt = bytearray(trace.data_format)[0]
+        fh.seek(trace.Data)
+        fmt = bytearray(trace.DataFormat)[0]
         dtype = [np.int16, np.int32, np.float16, np.float32][fmt]
-        data = np.fromfile(fh, count=trace.data_points, dtype=dtype)
-        return data * trace.data_scaler + trace.zero_data
+        data = np.fromfile(fh, count=trace.DataPoints, dtype=dtype)
+        return data * trace.DataScaler + trace.ZeroData
 
 
 class Bundle(object):
@@ -649,7 +648,7 @@ class Bundle(object):
         item = self.catalog[ext]
         if item.instance is None:
             cls = self.item_classes[ext]
-            item.instance = cls(self, item.start, item.length)
+            item.instance = cls(self, item.Start, item.Length)
         return item.instance
         
     def __repr__(self):
@@ -659,9 +658,59 @@ class Bundle(object):
 
 if __name__ == '__main__':
     import pyqtgraph as pg
-    b = Bundle('DemoV9Bundle.dat')
-    #trace = b.pul[0][0][0][0]
-    #plt = pg.plot(labels={'bottom': ('Time', 's'), 'left': (trace.label, trace.y_unit)})
-    #for i in range(len(b.pul[0][0][0])):
-        #plt.plot(b.data[0, 0, 0, i])
+    app = pg.mkQApp()
+    
+    win = pg.QtGui.QWidget()
+    layout = pg.QtGui.QGridLayout()
+    win.setLayout(layout)
+    hsplit = pg.QtGui.QSplitter(pg.QtCore.Qt.Horizontal)
+    layout.addWidget(hsplit, 0, 0)
+    
+    tree = pg.QtGui.QTreeWidget()
+    hsplit.addWidget(tree)
+    
+    plot = pg.PlotWidget()
+    hsplit.addWidget(plot)
+    
+    win.resize(800, 600)
+    win.show()
+    
+    def load(file_name):
+        global bundle, tree_items
+        bundle = Bundle(file_name)
+        tree.clear()
+        plot.clear()
+        
+        tree_items = []
+        root = pg.QtGui.QTreeWidgetItem(['root', ''])
+        tree.addTopLevelItem(root)
+        for group in bundle.pul:
+            gitem = pg.QtGui.QTreeWidgetItem(['group', ''])
+            root.addChild(gitem)
+            for series in group:
+                sitem = pg.QtGui.QTreeWidgetItem(['series', ''])
+                gitem.addChild(sitem)
+                sitem.series = series
+                for sweep in series:
+                    
+                    for trace in sweep:
+                        titem = pg.QtGui.QTreeWidgetItem(['trace', ''])
+                        sitem.addChild(titem)
+                        titem.trace = trace
+    
+    load('DemoV9Bundle.dat')
+    
+    
+    def replot():
+        sel = tree.selectedItems[0]
+        if hasattr(sel, 'series'):
+            
+    trace = b.pul[0][0][0][0]
+    plt = pg.plot(labels={'bottom': ('Time', 's'), 'left': (trace.Label, trace.YUnit)})
+    for i in range(len(b.pul[0][0][0])):
+        plt.plot(b.data[0, 0, 0, i])
+        
+        
+    tree.itemSelectionChanged.connect(replot)
+    
 
