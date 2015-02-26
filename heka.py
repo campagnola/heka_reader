@@ -511,8 +511,6 @@ class TreeNode(StructInst):
         SweepRecord,
         TraceRecord
     ]
-    
-    level_names = ['Root', 'Group', 'Series', 'Sweep', 'Trace']
 
     def __init__(self, fh, pul, level=0):
         self.level = level
@@ -524,7 +522,7 @@ class TreeNode(StructInst):
         # then pad or truncate before unpacking the record. This will probably
         # result in corrupt data in some situations..
         realsize = pul.level_sizes[level]
-        structsize = struct.calcsize(rectype[0])
+        structsize = rectype.size()
         data = fh.read(realsize)
         diff = structsize - realsize
         if diff > 0:
@@ -533,7 +531,7 @@ class TreeNode(StructInst):
             data = data[:structsize]
         
         # Read structure and assign attributes to self
-        StructInst.__init__(self, data, rectype, endian)
+        rectype(data, endian)
         
         # Next read the number of children
         nchild = struct.unpack(endian + 'i', fh.read(4))[0]
