@@ -47,7 +47,7 @@ class Struct(object):
         data = MyStruct(fh)
     
     """
-    fields = None
+    field_info = None
     size_check = None
     _fields_parsed = None
     
@@ -103,7 +103,7 @@ class Struct(object):
             fields[name] = item
             setattr(self, name, item)
             
-        self._fields = fields
+        self.fields = fields
         
     @classmethod
     def _field_info(cls):
@@ -142,16 +142,27 @@ class Struct(object):
     def __repr__(self, indent=0):
         indent_str = '    '*indent
         r = indent_str + '%s(\n'%self.__class__.__name__
-        if not hasattr(self, '_fields'):
+        if not hasattr(self, 'fields'):
             r = r[:-1] + '<initializing>)'
             return r
-        for k,v in self._fields.items():
+        for k,v in self.fields.items():
             if isinstance(v, Struct):
                 r += indent_str + '    %s = %s\n' % (k, v.__repr__(indent=indent+1).lstrip())
             else:
                 r += indent_str + '    %s = %r\n' % (k, v)
         r += indent_str + ')'
         return r
+
+    def get_fields(self):
+        """Recursively convert struct fields+values to nested dictionaries.
+        """
+        fields = self.fields.copy()
+        for k,v in fields.items():
+            if isinstance(v, StructArray):
+                fields[k] = [x.get_fields() for x in v.array]
+            elif isinstance(v, Struct):
+                fields[k] = v.get_fields()
+        return fields
 
     
 class StructArray(Struct):
@@ -167,10 +178,10 @@ class StructArray(Struct):
             d = data[:isize]
             data = data[isize:]
             items.append(self.item_struct(d, endian))
-        self._array = items
+        self.array = items
 
     def __getitem__(self, i):
-        return self._array[i]
+        return self.array[i]
         
     @classmethod
     def size(self):
@@ -178,7 +189,7 @@ class StructArray(Struct):
 
     def __repr__(self, indent=0):
         r = '    '*indent + '%s(\n' % self.__class__.__name__
-        for item in self._array:
+        for item in self.array:
             r += item.__repr__(indent=indent+1) + ',\n'
         r += '    '*indent + ')'
         return r
@@ -493,28 +504,28 @@ class LockInParams(Struct):
 
 class SeriesRecord(TreeNode):
     field_info = [
-        ('SeMark', 'i'),
-        ('SeLabel', '32s', cstr),
-        ('SeComment', '80s', cstr),
-        ('SeSeriesCount', 'i'),
-        ('SeNumberSweeps', 'i'),
-        ('SeAmplStateOffset', 'i'),
-        ('SeAmplStateSeries', 'i'),
-        ('SeriesType', 'c'),
+        ('Mark', 'i'),
+        ('Label', '32s', cstr),
+        ('Comment', '80s', cstr),
+        ('SeriesCount', 'i'),
+        ('NumberSweeps', 'i'),
+        ('AmplStateOffset', 'i'),
+        ('AmplStateSeries', 'i'),
+        ('riesType', 'c'),
         ('Filler1', 'c', None),
         ('Filler2', 'c', None),
         ('Filler3', 'c', None),
         ('Time', 'd'),
         ('PageWidth', 'd'),
         ('SwUserParamDescr', UserParamDescrType[4]),
-        ('SeFiller4', '32s', None),
-        ('SeSeUserParams', '4d'),
+        ('Filler4', '32s', None),
+        ('SeUserParams', '4d'),
         ('LockInParams', LockInParams),
         ('AmplifierState', AmplifierState),
-        ('SeUsername', '80s', cstr),
-        ('SeUserParamDescr', UserParamDescrType[4]),
-        ('SeFiller5', 'i', None),
-        ('SeCRC', 'i'),
+        ('Username', '80s', cstr),
+        ('UserParamDescr', UserParamDescrType[4]),
+        ('Filler5', 'i', None),
+        ('CRC', 'i'),
     ]
     size_check = 1120
 
@@ -653,64 +664,3 @@ class Bundle(object):
         
     def __repr__(self):
         return "Bundle(%r)" % list(self.catalog.keys())
-
-
-
-if __name__ == '__main__':
-    import pyqtgraph as pg
-    app = pg.mkQApp()
-    
-    win = pg.QtGui.QWidget()
-    layout = pg.QtGui.QGridLayout()
-    win.setLayout(layout)
-    hsplit = pg.QtGui.QSplitter(pg.QtCore.Qt.Horizontal)
-    layout.addWidget(hsplit, 0, 0)
-    
-    tree = pg.QtGui.QTreeWidget()
-    hsplit.addWidget(tree)
-    
-    plot = pg.PlotWidget()
-    hsplit.addWidget(plot)
-    
-    win.resize(800, 600)
-    win.show()
-    
-    def load(file_name):
-        global bundle, tree_items
-        bundle = Bundle(file_name)
-        tree.clear()
-        plot.clear()
-        
-        tree_items = []
-        root = pg.QtGui.QTreeWidgetItem(['root', ''])
-        tree.addTopLevelItem(root)
-        for group in bundle.pul:
-            gitem = pg.QtGui.QTreeWidgetItem(['group', ''])
-            root.addChild(gitem)
-            for series in group:
-                sitem = pg.QtGui.QTreeWidgetItem(['series', ''])
-                gitem.addChild(sitem)
-                sitem.series = series
-                for sweep in series:
-                    
-                    for trace in sweep:
-                        titem = pg.QtGui.QTreeWidgetItem(['trace', ''])
-                        sitem.addChild(titem)
-                        titem.trace = trace
-    
-    load('DemoV9Bundle.dat')
-    
-    
-    def replot():
-        sel = tree.selectedItems[0]
-        if hasattr(sel, 'series'):
-            
-    trace = b.pul[0][0][0][0]
-    plt = pg.plot(labels={'bottom': ('Time', 's'), 'left': (trace.Label, trace.YUnit)})
-    for i in range(len(b.pul[0][0][0])):
-        plt.plot(b.data[0, 0, 0, i])
-        
-        
-    tree.itemSelectionChanged.connect(replot)
-    
-
