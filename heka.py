@@ -2,8 +2,22 @@
 Heka Patchmaster .dat file reader 
 
 Structure definitions adapted from StimFit hekalib.cpp
-"""
 
+Brief example::
+
+    # Load a .dat file
+    bundle = Bundle(file_name)
+    
+    # Select a trace
+    trace = bundle.pul[group_ind][series_ind][sweep_ind][trace_ind]
+    
+    # Print meta-data for this trace
+    print(trace)
+    
+    # Load data for this trace
+    data = bundle.data[group_id, series_id, sweep_ind, trace_ind]
+
+"""
 
 import numpy as np
 import re, struct, collections

@@ -1,4 +1,4 @@
-import sys
+import os, sys
 import pyqtgraph as pg
 import numpy as np
 import heka
@@ -107,7 +107,9 @@ def replot():
     
 tree.itemSelectionChanged.connect(replot)
 
-#load('DemoV9Bundle.dat')
+demo = 'DemoV9Bundle.dat'
+if os.path.isfile(demo):
+    load(demo)
 
 
 if sys.flags.interactive == 0:
