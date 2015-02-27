@@ -1,7 +1,7 @@
 import os, sys
 import pyqtgraph as pg
 import numpy as np
-import heka
+import heka_reader
 
 app = pg.mkQApp()
 
@@ -63,7 +63,7 @@ def load(file_name):
     
     # Read the bundle header
     # (no data is read at this time)
-    bundle = heka.Bundle(file_name)
+    bundle = heka_reader.Bundle(file_name)
     
     # Clear the tree and update to show the structure provided in the embedded
     # .pul file
