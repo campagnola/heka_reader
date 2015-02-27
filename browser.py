@@ -1,5 +1,6 @@
 import sys
 import pyqtgraph as pg
+import numpy as np
 import heka
 
 app = pg.mkQApp()
@@ -13,10 +14,18 @@ layout.addWidget(hsplit, 0, 0)
 vsplit = pg.QtGui.QSplitter(pg.QtCore.Qt.Vertical)
 hsplit.addWidget(vsplit)
 
+w1 = pg.QtGui.QWidget()
+w1l = pg.QtGui.QGridLayout()
+w1.setLayout(w1l)
+vsplit.addWidget(w1)
+
+load_btn = pg.QtGui.QPushButton("Load...")
+w1l.addWidget(load_btn, 0, 0)
+
 tree = pg.QtGui.QTreeWidget()
 tree.setHeaderLabels(['Node', 'Label'])
 tree.setColumnWidth(0, 200)
-vsplit.addWidget(tree)
+w1l.addWidget(tree, 1, 0)
 
 data_tree = pg.DataTreeWidget()
 vsplit.addWidget(data_tree)
@@ -28,6 +37,14 @@ hsplit.setStretchFactor(0, 400)
 hsplit.setStretchFactor(1, 600)
 win.resize(1200, 800)
 win.show()
+
+def load_clicked():
+    file_name = pg.QtGui.QFileDialog.getOpenFileName()
+    if file_name is None:
+        return
+    load(file_name)
+    
+load_btn.clicked.connect(load_clicked)
 
 def load(file_name):
     global bundle, tree_items
@@ -83,12 +100,14 @@ def replot():
             return
         
         trace = sel.node
-        plot.setLabels(bottom=('Time', 's'), left=(trace.Label, trace.YUnit))
-        plot.plot(bundle.data[index])
+        plot.setLabels(bottom=('Time', trace.XUnit), left=(trace.Label, trace.YUnit))
+        data = bundle.data[index]
+        time = np.linspace(trace.XStart, trace.XStart + trace.XInterval * (len(data)-1), len(data)) 
+        plot.plot(time, data)
     
 tree.itemSelectionChanged.connect(replot)
 
-load('DemoV9Bundle.dat')
+#load('DemoV9Bundle.dat')
 
 
 if sys.flags.interactive == 0:
